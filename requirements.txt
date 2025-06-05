@@ -1,0 +1,8 @@
+langgraph
+langchain
+pymongo
+pandas
+numpy
+scikit-learn
+ollama
+python-dotenv
