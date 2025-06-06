@@ -49,6 +49,15 @@ class MLDetectorAgent:
             return {"is_laundering": False, "confidence": 0.0, "error": "Model not loaded"}
         
         try:
+            # Ensure we have exactly 7 features
+            if len(features) != 7:
+                print(f"[{self.name}] Warning: Expected 7 features, got {len(features)}")
+                # Pad or truncate to 7 features
+                if len(features) < 7:
+                    features.extend([0.0] * (7 - len(features)))
+                else:
+                    features = features[:7]
+            
             # Reshape features for prediction
             features_array = np.array(features).reshape(1, -1)
             
@@ -84,14 +93,24 @@ class MLDetectorAgent:
             return {"is_laundering": False, "confidence": 0.0, "error": str(e)}
     
     def test_model(self):
-        """Test the model with dummy data"""
+        """Test the model with dummy data matching the 7 feature structure"""
         if self.model is None:
             print(f"[{self.name}] Cannot test - model not loaded")
             return False
             
         try:
-            # Create dummy features (adjust based on your model's expected input)
-            dummy_features = [1000.0, 2.5, 0.1, 50000.0, 10.0]  # Example features
+            # Create dummy features matching your 7-feature structure:
+            # [From Bank, Account, To Bank, Account.1, Amount Received, Receiving Currency, Payment Format]
+            dummy_features = [
+                100.0,    # From Bank (encoded)
+                12345.0,  # Account (encoded) 
+                200.0,    # To Bank (encoded)
+                67890.0,  # Account.1 (encoded)
+                5000.0,   # Amount Received
+                1.0,      # Receiving Currency (USD=1)
+                1.0       # Payment Format (WIRE=1)
+            ]
+            
             result = self.predict_money_laundering(dummy_features)
             print(f"[{self.name}] Model test successful: {result}")
             return True

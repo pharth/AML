@@ -13,7 +13,6 @@ class TransactionGenerator:
         self.to_accounts = [f"ACC{str(i).zfill(8)}" for i in range(20000000, 20001000)]
         self.payment_formats = ["WIRE", "ACH", "CHECK", "CASH", "CRYPTO", "CARD", "TRANSFER"]
         self.currencies = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD"]
-        self.high_risk_currencies = ["BTC", "ETH", "XMR"]  # Crypto currencies
     
     def generate_clean_transaction(self) -> Dict[str, Any]:
         """Generate a clean (non-suspicious) transaction"""
@@ -21,15 +20,12 @@ class TransactionGenerator:
         amount = round(random.uniform(100, 10000), 2)
         
         return {
-            "Timestamp": datetime.utcnow().isoformat() + "Z",
             "From Bank": random.choice(self.from_banks),
             "Account": random.choice(self.from_accounts),
             "To Bank": random.choice(self.to_banks),
-            "Account.1": random.choice(self.to_accounts),  # Different column name for receiver
+            "Account.1": random.choice(self.to_accounts),
             "Amount Received": amount,
             "Receiving Currency": currency,
-            "Amount Paid": amount + round(random.uniform(-50, 50), 2),  # Small variation for fees
-            "Payment Currency": currency,  # Same currency for clean transactions
             "Payment Format": random.choice(["WIRE", "ACH", "CHECK"]),  # Normal formats
             "Is Laundering": 0  # Clean transaction
         }
@@ -39,23 +35,16 @@ class TransactionGenerator:
         # Large amount transactions
         amount_received = round(random.uniform(50000, 500000), 2)
         
-        # Different currencies (currency exchange red flag)
-        receiving_currency = random.choice(self.currencies + self.high_risk_currencies)
-        payment_currency = random.choice(self.currencies)
-        
-        # Significant amount difference (structuring red flag)
-        amount_paid = amount_received + round(random.uniform(-10000, -1000), 2)
+        # High-risk currency and format combinations
+        receiving_currency = random.choice(self.currencies)
         
         return {
-            "Timestamp": datetime.utcnow().isoformat() + "Z",
             "From Bank": random.choice(self.from_banks),
             "Account": random.choice(self.from_accounts),
             "To Bank": random.choice(self.to_banks),
             "Account.1": random.choice(self.to_accounts),
             "Amount Received": amount_received,
             "Receiving Currency": receiving_currency,
-            "Amount Paid": amount_paid,
-            "Payment Currency": payment_currency,
             "Payment Format": random.choice(["CRYPTO", "CASH", "WIRE"]),  # High-risk formats
             "Is Laundering": 1  # Suspicious transaction
         }

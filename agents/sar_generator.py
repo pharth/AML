@@ -22,7 +22,7 @@ class SARGeneratorAgent:
             return []
     
     def format_transactions_for_analysis(self, transactions: List[Dict[str, Any]]) -> str:
-        """Format transactions for LLM analysis"""
+        """Format transactions for LLM analysis - updated for 7-column structure"""
         if not transactions:
             return "No transaction history available."
         
@@ -35,9 +35,7 @@ Transaction {i}:
 - To Bank: {tx.get('To Bank', 'Unknown')}
 - To Account: {tx.get('Account.1', 'Unknown')}
 - Amount Received: ${tx.get('Amount Received', 0):,.2f} {tx.get('Receiving Currency', 'USD')}
-- Amount Paid: ${tx.get('Amount Paid', 0):,.2f} {tx.get('Payment Currency', 'USD')}
 - Payment Format: {tx.get('Payment Format', 'Unknown')}
-- Timestamp: {tx.get('Timestamp', 'Unknown')}
 """
             formatted_transactions.append(tx_str)
         
@@ -62,7 +60,6 @@ Current Flagged Transaction:
 - To Bank: {current_transaction.get('To Bank', 'Unknown')}
 - To Account: {current_transaction.get('Account.1', 'Unknown')}
 - Amount Received: ${current_transaction.get('Amount Received', 0):,.2f} {current_transaction.get('Receiving Currency', 'USD')}
-- Amount Paid: ${current_transaction.get('Amount Paid', 0):,.2f} {current_transaction.get('Payment Currency', 'USD')}
 - Payment Format: {current_transaction.get('Payment Format', 'Unknown')}
 - ML Model Confidence: {ml_prediction.get('confidence', 0):.2%}
 
@@ -86,10 +83,9 @@ Please generate a comprehensive Suspicious Activity Report (SAR) that includes:
 
 4. ANALYSIS AND INDICATORS
    - Red flags and warning signs
-   - Currency exchange patterns
-   - Amount discrepancies between paid and received
    - Payment format risks
-   - Comparison to normal transaction patterns
+   - Amount patterns and thresholds
+   - Cross-bank transaction analysis
    - ML model insights and confidence levels
 
 5. REGULATORY IMPLICATIONS
@@ -122,9 +118,7 @@ Please format the report professionally and ensure all sections are comprehensiv
                 "to_bank": current_transaction.get("To Bank", ""),
                 "flagged_transaction_id": str(current_transaction.get("_id", "")),
                 "amount_received": current_transaction.get("Amount Received", 0),
-                "amount_paid": current_transaction.get("Amount Paid", 0),
                 "receiving_currency": current_transaction.get("Receiving Currency", ""),
-                "payment_currency": current_transaction.get("Payment Currency", ""),
                 "payment_format": current_transaction.get("Payment Format", ""),
                 "ml_confidence": ml_prediction.get("confidence", 0),
                 "sar_content": sar_content,
