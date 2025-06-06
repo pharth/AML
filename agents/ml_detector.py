@@ -12,12 +12,35 @@ class MLDetectorAgent:
     def load_ml_model(self):
         """Load the trained ML model from pickle file"""
         try:
+            # Try to import xgboost first
+            try:
+                import xgboost as xgb
+                print(f"[{self.name}] XGBoost version: {xgb.__version__}")
+            except ImportError:
+                print(f"[{self.name}] Warning: XGBoost not installed. Installing...")
+                import subprocess
+                import sys
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "xgboost"])
+                import xgboost as xgb
+                print(f"[{self.name}] XGBoost installed successfully, version: {xgb.__version__}")
+            
+            # Load the model
             with open(config.ML_MODEL_PATH, 'rb') as f:
                 model = pickle.load(f)
             print(f"[{self.name}] ML model loaded successfully")
+            print(f"[{self.name}] Model type: {type(model)}")
             return model
+            
+        except ImportError as e:
+            print(f"[{self.name}] Error installing XGBoost: {e}")
+            print(f"[{self.name}] Please install XGBoost manually: pip install xgboost")
+            return None
+        except FileNotFoundError:
+            print(f"[{self.name}] Model file not found: {config.ML_MODEL_PATH}")
+            return None
         except Exception as e:
             print(f"[{self.name}] Error loading ML model: {e}")
+            print(f"[{self.name}] Model path: {config.ML_MODEL_PATH}")
             return None
     
     def predict_money_laundering(self, features: List[float]) -> Dict[str, Any]:
@@ -37,7 +60,12 @@ class MLDetectorAgent:
                 probabilities = self.model.predict_proba(features_array)[0]
                 confidence = max(probabilities)
             else:
-                confidence = 0.8 if prediction == 1 else 0.2
+                # For XGBoost models, try predict_proba or use default confidence
+                try:
+                    probabilities = self.model.predict_proba(features_array)[0]
+                    confidence = max(probabilities)
+                except:
+                    confidence = 0.8 if prediction == 1 else 0.2
             
             is_laundering = bool(prediction == 1)
             
@@ -51,7 +79,25 @@ class MLDetectorAgent:
             
         except Exception as e:
             print(f"[{self.name}] Error in prediction: {e}")
+            print(f"[{self.name}] Features shape: {np.array(features).shape}")
+            print(f"[{self.name}] Features: {features}")
             return {"is_laundering": False, "confidence": 0.0, "error": str(e)}
+    
+    def test_model(self):
+        """Test the model with dummy data"""
+        if self.model is None:
+            print(f"[{self.name}] Cannot test - model not loaded")
+            return False
+            
+        try:
+            # Create dummy features (adjust based on your model's expected input)
+            dummy_features = [1000.0, 2.5, 0.1, 50000.0, 10.0]  # Example features
+            result = self.predict_money_laundering(dummy_features)
+            print(f"[{self.name}] Model test successful: {result}")
+            return True
+        except Exception as e:
+            print(f"[{self.name}] Model test failed: {e}")
+            return False
     
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """LangGraph node execution"""
@@ -62,6 +108,7 @@ class MLDetectorAgent:
         current_transaction = state.get("current_transaction", {})
         
         if not ml_features:
+            print(f"[{self.name}] No ML features provided")
             return {"ml_prediction": None, "requires_investigation": False}
         
         # Make prediction
@@ -69,13 +116,19 @@ class MLDetectorAgent:
         
         # Mark transaction as processed
         if current_transaction and "_id" in current_transaction:
-            mongo_handler.mark_transaction_processed(str(current_transaction["_id"]))
+            try:
+                mongo_handler.mark_transaction_processed(str(current_transaction["_id"]))
+            except Exception as e:
+                print(f"[{self.name}] Error marking transaction as processed: {e}")
         
         # Update state
         requires_investigation = prediction_result.get("is_laundering", False)
         
+        # Extract sender account using your data column names
+        sender_account = current_transaction.get("Account", "")
+        
         return {
             "ml_prediction": prediction_result,
             "requires_investigation": requires_investigation,
-            "sender_account": current_transaction.get("sender_account", "")
+            "sender_account": sender_account
         }

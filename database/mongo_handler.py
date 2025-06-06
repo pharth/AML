@@ -10,15 +10,20 @@ class MongoHandler:
         self.transactions_collection = self.db[config.MONGO_COLLECTION_NAME]
         self.sar_collection = self.db["sar_reports"]
         
-        # Create indexes for better performance
-        self.transactions_collection.create_index("timestamp")
-        self.transactions_collection.create_index("sender_account")
+        # Create indexes for better performance based on your data columns
+        self.transactions_collection.create_index("Timestamp")
+        self.transactions_collection.create_index("Account")  # From Account
         self.transactions_collection.create_index("processed")
+        self.transactions_collection.create_index("From Bank")
+        self.transactions_collection.create_index("To Bank")
     
     def insert_transaction(self, transaction: Dict[str, Any]) -> str:
         """Insert a new transaction into MongoDB"""
-        transaction['timestamp'] = datetime.utcnow()
+        # Add processing flag, keep original timestamp
         transaction['processed'] = False
+        if 'Timestamp' not in transaction:
+            transaction['Timestamp'] = datetime.utcnow().isoformat() + "Z"
+        
         result = self.transactions_collection.insert_one(transaction)
         return str(result.inserted_id)
     
@@ -37,10 +42,10 @@ class MongoHandler:
         )
     
     def get_last_n_transactions_by_sender(self, sender_account: str, n: int = 10) -> List[Dict[str, Any]]:
-        """Get last N transactions by sender account"""
+        """Get last N transactions by sender account (using 'Account' field)"""
         return list(self.transactions_collection.find(
-            {"sender_account": sender_account}
-        ).sort("timestamp", DESCENDING).limit(n))
+            {"Account": sender_account}  # Changed from "sender_account" to "Account"
+        ).sort("Timestamp", DESCENDING).limit(n))
     
     def insert_sar_report(self, sar_report: Dict[str, Any]) -> str:
         """Insert SAR report into MongoDB"""

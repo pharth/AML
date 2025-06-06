@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 @dataclass
 class Config:
@@ -10,10 +11,10 @@ class Config:
     
     # Ollama Configuration
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "llama2"  # Change to your preferred local model
+    OLLAMA_MODEL: str = "dolphin-mistral:latest"  # Change to your preferred local model
     
     # ML Model Configuration
-    ML_MODEL_PATH: str = "models/aml_model.pkl"
+    ML_MODEL_PATH: str = str(Path(__file__).parent.parent / "models" / "aml_model.pkl")
     
     # System Configuration
     TRANSACTION_BATCH_SIZE: int = 1

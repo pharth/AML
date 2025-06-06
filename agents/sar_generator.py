@@ -30,12 +30,14 @@ class SARGeneratorAgent:
         for i, tx in enumerate(transactions, 1):
             tx_str = f"""
 Transaction {i}:
-- Amount: ${tx.get('amount', 0):,.2f}
-- Receiver: {tx.get('receiver_account', 'Unknown')}
-- Type: {tx.get('transaction_type', 'Unknown')}
-- Timestamp: {tx.get('timestamp', 'Unknown')}
-- Cross-border: {'Yes' if tx.get('cross_border', False) else 'No'}
-- High-risk country: {'Yes' if tx.get('high_risk_country', False) else 'No'}
+- From Bank: {tx.get('From Bank', 'Unknown')}
+- From Account: {tx.get('Account', 'Unknown')}
+- To Bank: {tx.get('To Bank', 'Unknown')}
+- To Account: {tx.get('Account.1', 'Unknown')}
+- Amount Received: ${tx.get('Amount Received', 0):,.2f} {tx.get('Receiving Currency', 'USD')}
+- Amount Paid: ${tx.get('Amount Paid', 0):,.2f} {tx.get('Payment Currency', 'USD')}
+- Payment Format: {tx.get('Payment Format', 'Unknown')}
+- Timestamp: {tx.get('Timestamp', 'Unknown')}
 """
             formatted_transactions.append(tx_str)
         
@@ -55,9 +57,13 @@ Transaction {i}:
 SUSPICIOUS ACTIVITY DETECTED
 
 Current Flagged Transaction:
-- Sender Account: {sender_account}
-- Amount: ${current_transaction.get('amount', 0):,.2f}
-- Receiver: {current_transaction.get('receiver_account', 'Unknown')}
+- From Bank: {current_transaction.get('From Bank', 'Unknown')}
+- From Account: {sender_account}
+- To Bank: {current_transaction.get('To Bank', 'Unknown')}
+- To Account: {current_transaction.get('Account.1', 'Unknown')}
+- Amount Received: ${current_transaction.get('Amount Received', 0):,.2f} {current_transaction.get('Receiving Currency', 'USD')}
+- Amount Paid: ${current_transaction.get('Amount Paid', 0):,.2f} {current_transaction.get('Payment Currency', 'USD')}
+- Payment Format: {current_transaction.get('Payment Format', 'Unknown')}
 - ML Model Confidence: {ml_prediction.get('confidence', 0):.2%}
 
 Historical Transaction Pattern (Last {len(historical_transactions)} transactions):
@@ -80,6 +86,9 @@ Please generate a comprehensive Suspicious Activity Report (SAR) that includes:
 
 4. ANALYSIS AND INDICATORS
    - Red flags and warning signs
+   - Currency exchange patterns
+   - Amount discrepancies between paid and received
+   - Payment format risks
    - Comparison to normal transaction patterns
    - ML model insights and confidence levels
 
@@ -109,8 +118,14 @@ Please format the report professionally and ensure all sections are comprehensiv
         try:
             sar_report = {
                 "sender_account": sender_account,
+                "from_bank": current_transaction.get("From Bank", ""),
+                "to_bank": current_transaction.get("To Bank", ""),
                 "flagged_transaction_id": str(current_transaction.get("_id", "")),
-                "flagged_amount": current_transaction.get("amount", 0),
+                "amount_received": current_transaction.get("Amount Received", 0),
+                "amount_paid": current_transaction.get("Amount Paid", 0),
+                "receiving_currency": current_transaction.get("Receiving Currency", ""),
+                "payment_currency": current_transaction.get("Payment Currency", ""),
+                "payment_format": current_transaction.get("Payment Format", ""),
                 "ml_confidence": ml_prediction.get("confidence", 0),
                 "sar_content": sar_content,
                 "status": "PENDING_REVIEW",
