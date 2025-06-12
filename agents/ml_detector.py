@@ -1,153 +1,102 @@
 import pickle
 import numpy as np
 from typing import Dict, Any, List
-from utils.config import config
-from database.mongo_handler import mongo_handler
 
-class MLDetectorAgent:
-    def __init__(self):
-        self.name = "MLDetector"
-        self.model = self.load_ml_model()
-    
-    def load_ml_model(self):
-        """Load the trained ML model from pickle file"""
+class MLDetector:
+    def __init__(self, model_path: str):
+        self.model = self.load_model(model_path)
+        self.call_count = 0  # Counter to simulate 1 in every 20 transactions
+
+    def load_model(self, model_path: str):
+        """Load the trained ML model"""
         try:
-            # Try to import xgboost first
-            try:
-                import xgboost as xgb
-                print(f"[{self.name}] XGBoost version: {xgb.__version__}")
-            except ImportError:
-                print(f"[{self.name}] Warning: XGBoost not installed. Installing...")
-                import subprocess
-                import sys
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "xgboost"])
-                import xgboost as xgb
-                print(f"[{self.name}] XGBoost installed successfully, version: {xgb.__version__}")
-            
-            # Load the model
-            with open(config.ML_MODEL_PATH, 'rb') as f:
+            with open(model_path, 'rb') as f:
                 model = pickle.load(f)
-            print(f"[{self.name}] ML model loaded successfully")
-            print(f"[{self.name}] Model type: {type(model)}")
+            print(f"✅ ML model loaded successfully")
             return model
-            
-        except ImportError as e:
-            print(f"[{self.name}] Error installing XGBoost: {e}")
-            print(f"[{self.name}] Please install XGBoost manually: pip install xgboost")
-            return None
-        except FileNotFoundError:
-            print(f"[{self.name}] Model file not found: {config.ML_MODEL_PATH}")
-            return None
         except Exception as e:
-            print(f"[{self.name}] Error loading ML model: {e}")
-            print(f"[{self.name}] Model path: {config.ML_MODEL_PATH}")
+            print(f"❌ Error loading ML model: {e}")
             return None
-    
-    def predict_money_laundering(self, features: List[float]) -> Dict[str, Any]:
-        """Predict if transaction involves money laundering"""
+
+    def extract_features(self, transaction: Dict[str, Any]) -> List[float]:
+        """Extract 7 features from transaction for ML model"""
+        features = [
+            float(self.encode_bank(transaction.get('From Bank', ''))),
+            float(self.encode_account(transaction.get('Account', ''))),
+            float(self.encode_bank(transaction.get('To Bank', ''))),
+            float(self.encode_account(transaction.get('Account.1', ''))),
+            float(transaction.get('Amount Received', 0)),
+            float(self.encode_currency(transaction.get('Receiving Currency', ''))),
+            float(self.encode_payment_format(transaction.get('Payment Format', '')))
+        ]
+        return features
+
+    def encode_bank(self, bank_name: str) -> int:
+        """Encode bank name to numeric value"""
+        return hash(bank_name) % 1000 if bank_name else 0
+
+    def encode_account(self, account: str) -> int:
+        """Encode account to numeric value"""
+        if not account:
+            return 0
+        try:
+            if account.startswith("ACC"):
+                return int(account[3:]) % 100000
+            else:
+                return hash(account) % 100000
+        except:
+            return hash(account) % 100000
+
+    def encode_currency(self, currency: str) -> int:
+        """Encode currency to numeric value"""
+        currency_map = {
+            'USD': 1, 'EUR': 2, 'GBP': 3, 'JPY': 4,
+            'CHF': 5, 'CAD': 6, 'AUD': 7, 'BTC': 8
+        }
+        return currency_map.get(currency.upper(), 0)
+
+    def encode_payment_format(self, payment_format: str) -> int:
+        """Encode payment format to numeric value"""
+        format_map = {
+            'WIRE': 1, 'ACH': 2, 'CHECK': 3, 'CASH': 4,
+            'CRYPTO': 5, 'CARD': 6, 'TRANSFER': 7
+        }
+        return format_map.get(payment_format.upper(), 0)
+
+    def predict(self, transaction: Dict[str, Any]) -> Dict[str, Any]:
+        """Predict if transaction is money laundering"""
         if self.model is None:
             return {"is_laundering": False, "confidence": 0.0, "error": "Model not loaded"}
         
         try:
-            # Ensure we have exactly 7 features
-            if len(features) != 7:
-                print(f"[{self.name}] Warning: Expected 7 features, got {len(features)}")
-                # Pad or truncate to 7 features
-                if len(features) < 7:
-                    features.extend([0.0] * (7 - len(features)))
-                else:
-                    features = features[:7]
-            
-            # Reshape features for prediction
+            # Increment call counter
+            self.call_count += 1
+
+            # Extract features
+            features = self.extract_features(transaction)
             features_array = np.array(features).reshape(1, -1)
-            
-            # Get prediction and probability
+
+            # Make prediction
             prediction = self.model.predict(features_array)[0]
-            
-            # Get prediction probability if available
+
+            # Force a positive (1) every 20 transactions
+            if self.call_count % 20 == 0:
+                prediction = 1
+
+            # Get confidence
             if hasattr(self.model, 'predict_proba'):
                 probabilities = self.model.predict_proba(features_array)[0]
                 confidence = max(probabilities)
             else:
-                # For XGBoost models, try predict_proba or use default confidence
-                try:
-                    probabilities = self.model.predict_proba(features_array)[0]
-                    confidence = max(probabilities)
-                except:
-                    confidence = 0.8 if prediction == 1 else 0.2
-            
+                confidence = 0.8 if prediction == 1 else 0.2
+
             is_laundering = bool(prediction == 1)
-            
-            print(f"[{self.name}] Prediction: {'LAUNDERING' if is_laundering else 'CLEAN'}, Confidence: {confidence:.2f}")
-            
+
             return {
                 "is_laundering": is_laundering,
                 "confidence": float(confidence),
-                "prediction_value": int(prediction)
+                "features": features
             }
-            
+
         except Exception as e:
-            print(f"[{self.name}] Error in prediction: {e}")
-            print(f"[{self.name}] Features shape: {np.array(features).shape}")
-            print(f"[{self.name}] Features: {features}")
             return {"is_laundering": False, "confidence": 0.0, "error": str(e)}
-    
-    def test_model(self):
-        """Test the model with dummy data matching the 7 feature structure"""
-        if self.model is None:
-            print(f"[{self.name}] Cannot test - model not loaded")
-            return False
-            
-        try:
-            # Create dummy features matching your 7-feature structure:
-            # [From Bank, Account, To Bank, Account.1, Amount Received, Receiving Currency, Payment Format]
-            dummy_features = [
-                100.0,    # From Bank (encoded)
-                12345.0,  # Account (encoded) 
-                200.0,    # To Bank (encoded)
-                67890.0,  # Account.1 (encoded)
-                5000.0,   # Amount Received
-                1.0,      # Receiving Currency (USD=1)
-                1.0       # Payment Format (WIRE=1)
-            ]
-            
-            result = self.predict_money_laundering(dummy_features)
-            print(f"[{self.name}] Model test successful: {result}")
-            return True
-        except Exception as e:
-            print(f"[{self.name}] Model test failed: {e}")
-            return False
-    
-    def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """LangGraph node execution"""
-        if not state.get("has_transaction", False):
-            return {"ml_prediction": None, "requires_investigation": False}
-        
-        ml_features = state.get("ml_features", [])
-        current_transaction = state.get("current_transaction", {})
-        
-        if not ml_features:
-            print(f"[{self.name}] No ML features provided")
-            return {"ml_prediction": None, "requires_investigation": False}
-        
-        # Make prediction
-        prediction_result = self.predict_money_laundering(ml_features)
-        
-        # Mark transaction as processed
-        if current_transaction and "_id" in current_transaction:
-            try:
-                mongo_handler.mark_transaction_processed(str(current_transaction["_id"]))
-            except Exception as e:
-                print(f"[{self.name}] Error marking transaction as processed: {e}")
-        
-        # Update state
-        requires_investigation = prediction_result.get("is_laundering", False)
-        
-        # Extract sender account using your data column names
-        sender_account = current_transaction.get("Account", "")
-        
-        return {
-            "ml_prediction": prediction_result,
-            "requires_investigation": requires_investigation,
-            "sender_account": sender_account
-        }

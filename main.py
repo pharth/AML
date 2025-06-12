@@ -1,132 +1,233 @@
 import argparse
-import sys
+import time
+from pathlib import Path
+
+from agents.ml_detector import MLDetector
+from agents.sar_generator import SARGenerator
+from database.mongo_handler import MongoHandler
+
+from dotenv import load_dotenv
 import os
 
-# Add project root to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+class AMLSimulation:
+    def __init__(self):
+        # Configuration
 
-from simulation.run_simulation import aml_simulation
-from simulation.transaction_generator import transaction_generator
-from workflows.aml_workflow import aml_workflow
-from database.mongo_handler import mongo_handler
+        load_dotenv()
+
+        self.mongo_uri = os.getenv("MONGO_URI")
+        self.model_path = os.getenv("MODEL_PATH")
+        self.csv_path = os.getenv("CSV_PATH")
+        
+        # Initialize components
+        self.mongo = MongoHandler(self.mongo_uri)
+        self.ml_detector = MLDetector(self.model_path)
+        self.sar_generator = SARGenerator()
+        
+        # Statistics
+        self.stats = {
+            "processed": 0,
+            "suspicious": 0,
+            "clean": 0,
+            "sars_generated": 0,
+            "errors": 0
+        }
+    
+    def load_csv_data(self):
+        """Load CSV data to MongoDB"""
+        print("🔄 Loading CSV data to MongoDB...")
+        
+        if not Path(self.csv_path).exists():
+            print(f"❌ CSV file not found: {self.csv_path}")
+            return False
+        
+        count = self.mongo.load_csv_to_mongo(self.csv_path)
+        if count > 0:
+            print(f"✅ Successfully loaded {count} transactions")
+            return True
+        else:
+            print("❌ Failed to load CSV data")
+            return False
+    
+    def process_single_transaction(self, transaction):
+        """Process a single transaction through both agents"""
+        try:
+            transaction_id = str(transaction.get('_id', ''))
+            account_id = transaction.get('Account', 'Unknown')
+            amount = transaction.get('Amount Received', 0)
+            
+            print(f"\n🔍 Processing: {account_id} -> ${amount:,.2f}")
+            
+            # Agent 1: ML Detection
+            ml_result = self.ml_detector.predict(transaction)
+            
+            if ml_result.get("error"):
+                print(f"❌ ML Error: {ml_result['error']}")
+                self.stats["errors"] += 1
+                return
+            
+            is_laundering = ml_result.get("is_laundering", False)
+            confidence = ml_result.get("confidence", 0)
+            
+            if is_laundering:
+                print(f"🚨 SUSPICIOUS - Confidence: {confidence:.2%}")
+                self.stats["suspicious"] += 1
+                
+                # Agent 2: SAR Generation
+                sar_result = self.sar_generator.process_suspicious_transaction(
+                    transaction, confidence, self.mongo
+                )
+                
+                if sar_result.get("sar_id"):
+                    self.stats["sars_generated"] += 1
+                    print(f"📄 SAR Generated: {sar_result['sar_id']}")
+                
+            else:
+                print(f"✅ CLEAN - Confidence: {confidence:.2%}")
+                self.stats["clean"] += 1
+            
+            # Mark as processed
+            self.mongo.mark_transaction_processed(transaction_id)
+            self.stats["processed"] += 1
+            
+        except Exception as e:
+            print(f"❌ Error processing transaction: {e}")
+            self.stats["errors"] += 1
+    
+    def run_simulation(self):
+        """Run the main simulation"""
+        print("\n🚀 Starting AML Detection Simulation")
+        print("=" * 50)
+        
+        # Check if we have data
+        db_stats = self.mongo.get_statistics()
+        print(f"📊 Database Status:")
+        print(f"   Total transactions: {db_stats['total_transactions']}")
+        print(f"   Unprocessed: {db_stats['unprocessed']}")
+        print(f"   Existing SARs: {db_stats['sar_reports']}")
+        
+        if db_stats['unprocessed'] == 0:
+            print("\n⚠️  No unprocessed transactions found!")
+            print("   Use --load-csv to load data first")
+            return
+        
+        # Process transactions
+        print(f"\n🔄 Processing {db_stats['unprocessed']} transactions...")
+        
+        while True:
+            # Get next unprocessed transaction
+            transactions = self.mongo.get_unprocessed_transactions(limit=1)
+            
+            if not transactions:
+                print("\n✅ All transactions processed!")
+                break
+            
+            # Process the transaction
+            self.process_single_transaction(transactions[0])
+            
+            # Small delay to see progress
+            time.sleep(0.5)
+        
+        # Show final results
+        self.show_results()
+    
+    def show_results(self):
+        """Display simulation results"""
+        print("\n" + "=" * 50)
+        print("🎯 SIMULATION RESULTS")
+        print("=" * 50)
+        print(f"Transactions Processed: {self.stats['processed']}")
+        print(f"Clean Transactions: {self.stats['clean']}")
+        print(f"Suspicious Detected: {self.stats['suspicious']}")
+        print(f"SAR Reports Generated: {self.stats['sars_generated']}")
+        print(f"Errors: {self.stats['errors']}")
+        
+        if self.stats['processed'] > 0:
+            suspicious_rate = (self.stats['suspicious'] / self.stats['processed']) * 100
+            print(f"Suspicious Rate: {suspicious_rate:.1f}%")
+        
+        # Database stats
+        db_stats = self.mongo.get_statistics()
+        print(f"\n📊 Database Status:")
+        print(f"Total Transactions: {db_stats['total_transactions']}")
+        print(f"Total SAR Reports: {db_stats['sar_reports']}")
+        print("=" * 50)
+    
+    def health_check(self):
+        """Check system health"""
+        print("🏥 System Health Check")
+        print("=" * 30)
+        
+        # Check MongoDB
+        try:
+            self.mongo.get_statistics()
+            print("✅ MongoDB: Connected")
+        except Exception as e:
+            print(f"❌ MongoDB: {e}")
+        
+        # Check ML Model
+        if self.ml_detector.model:
+            print("✅ ML Model: Loaded")
+        else:
+            print("❌ ML Model: Not loaded")
+        
+        # Check CSV file
+        if Path(self.csv_path).exists():
+            print("✅ CSV File: Found")
+        else:
+            print("❌ CSV File: Not found")
+        
+        # Check Ollama
+        try:
+            self.sar_generator.client.list()
+            print("✅ Ollama: Connected")
+        except Exception as e:
+            print(f"❌ Ollama: {e}")
+    
+    def cleanup(self):
+        """Cleanup resources"""
+        self.mongo.close()
 
 def main():
-    parser = argparse.ArgumentParser(description="AML Detection System")
-    parser.add_argument(
-        'mode', 
-        choices=['simulation', 'monitor', 'test', 'generate', 'health'],
-        help='Operation mode'
-    )
-    parser.add_argument(
-        '--duration', 
-        type=int, 
-        default=10,
-        help='Duration in minutes for simulation mode (default: 10)'
-    )
-    parser.add_argument(
-        '--count', 
-        type=int, 
-        default=20,
-        help='Number of transactions to generate (default: 20)'
-    )
+    parser = argparse.ArgumentParser(description="Simplified AML Detection System")
+    parser.add_argument('--load-csv', action='store_true', help='Load CSV data to MongoDB')
+    parser.add_argument('--simulate', action='store_true', help='Run simulation')
+    parser.add_argument('--health', action='store_true', help='Check system health')
+    parser.add_argument('--results', action='store_true', help='Show current results')
     
     args = parser.parse_args()
     
-    print("🏦 Anti-Money Laundering Detection System")
-    print("="*50)
+    simulation = AMLSimulation()
     
     try:
-        if args.mode == 'simulation':
-            print(f"Running full simulation for {args.duration} minutes...")
-            aml_simulation.run_full_simulation(duration_minutes=args.duration)
-            
-        elif args.mode == 'monitor':
-            print("Starting continuous monitoring...")
-            aml_workflow.run_continuous(max_iterations=1000)
-            
-        elif args.mode == 'test':
-            print("Running single test cycle...")
-            aml_simulation.run_single_test()
-            
-        elif args.mode == 'generate':
-            print(f"Generating {args.count} test transactions...")
-            transaction_generator.generate_batch_transactions(args.count)
-            print("✅ Transaction generation complete")
-            
-        elif args.mode == 'health':
-            print("Checking system health...")
-            health = aml_simulation.check_system_health()
-            
-            if all(health.values()):
-                print("\n✅ All systems operational!")
-                sys.exit(0)
-            else:
-                print("\n❌ Some systems are not operational")
-                sys.exit(1)
-                
+        if args.load_csv:
+            simulation.load_csv_data()
+        
+        elif args.simulate:
+            simulation.run_simulation()
+        
+        elif args.health:
+            simulation.health_check()
+        
+        elif args.results:
+            simulation.show_results()
+        
+        else:
+            print("🏦 AML Detection System")
+            print("Usage:")
+            print("  --load-csv    Load CSV data to MongoDB")
+            print("  --simulate    Run detection simulation")
+            print("  --health      Check system health")
+            print("  --results     Show current results")
+    
     except KeyboardInterrupt:
-        print("\n⏹️  Operation interrupted by user")
+        print("\n⏹️  Simulation interrupted")
+    
     except Exception as e:
         print(f"\n❌ Error: {e}")
-        sys.exit(1)
-    finally:
-        # Cleanup
-        try:
-            mongo_handler.close_connection()
-        except:
-            pass
-
-def interactive_mode():
-    """Interactive mode for easier testing"""
-    print("🏦 AML Detection System - Interactive Mode")
-    print("="*50)
     
-    while True:
-        print("\nAvailable options:")
-        print("1. Check system health")
-        print("2. Generate test transactions")
-        print("3. Run single test")
-        print("4. Run simulation (5 min)")
-        print("5. Start monitoring")
-        print("6. Exit")
-        
-        choice = input("\nSelect option (1-6): ").strip()
-        
-        try:
-            if choice == '1':
-                aml_simulation.check_system_health()
-                
-            elif choice == '2':
-                count = input("Number of transactions (default 10): ").strip()
-                count = int(count) if count else 10
-                transaction_generator.generate_batch_transactions(count)
-                
-            elif choice == '3':
-                aml_simulation.run_single_test()
-                
-            elif choice == '4':
-                aml_simulation.run_full_simulation(duration_minutes=5)
-                
-            elif choice == '5':
-                print("Starting monitoring... (Press Ctrl+C to stop)")
-                aml_workflow.run_continuous(max_iterations=1000)
-                
-            elif choice == '6':
-                print("Goodbye! 👋")
-                break
-                
-            else:
-                print("Invalid option. Please try again.")
-                
-        except KeyboardInterrupt:
-            print("\n⏹️  Operation interrupted")
-        except Exception as e:
-            print(f"❌ Error: {e}")
+    finally:
+        simulation.cleanup()
 
 if __name__ == "__main__":
-    if len(sys.argv) == 1:
-        # No arguments provided, run interactive mode
-        interactive_mode()
-    else:
-        # Run with command line arguments
-        main()
+    main()
