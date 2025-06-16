@@ -2,8 +2,8 @@ import argparse
 import time
 from pathlib import Path
 
-from agents.ml_detector import MLDetector
-from agents.sar_generator import SARGenerator
+from agents.ml_detector import MLDetectorAgent
+from agents.sar_generator import SARAgent
 from database.mongo_handler import MongoHandler
 
 from dotenv import load_dotenv
@@ -12,7 +12,6 @@ import os
 class AMLSimulation:
     def __init__(self):
         # Configuration
-
         load_dotenv()
 
         self.mongo_uri = os.getenv("MONGO_URI")
@@ -21,8 +20,8 @@ class AMLSimulation:
         
         # Initialize components
         self.mongo = MongoHandler(self.mongo_uri)
-        self.ml_detector = MLDetector(self.model_path)
-        self.sar_generator = SARGenerator()
+        self.ml_detector = MLDetectorAgent(self.model_path)
+        self.sar_generator = SARAgent()
         
         # Statistics
         self.stats = {
@@ -166,10 +165,13 @@ class AMLSimulation:
             print(f"❌ MongoDB: {e}")
         
         # Check ML Model
-        if self.ml_detector.model:
+        try:
+            with open(self.model_path, 'rb') as f:
+                import pickle
+                pickle.load(f)
             print("✅ ML Model: Loaded")
-        else:
-            print("❌ ML Model: Not loaded")
+        except Exception as e:
+            print(f"❌ ML Model: {e}")
         
         # Check CSV file
         if Path(self.csv_path).exists():
